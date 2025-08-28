@@ -1,0 +1,141 @@
+version: '3.8'
+
+services:
+  # MySQL数据库
+  mysql:
+    image: mysql:8.0
+    container_name: volunteer_matching_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-password}
+      MYSQL_DATABASE: ${DB_NAME:-volunteer_matching}
+      MYSQL_USER: ${DB_USER:-volunteer}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-password}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./scripts/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - volunteer_network
+    command: --default-authentication-plugin=mysql_native_password
+
+  # Redis缓存
+  redis:
+    image: redis:7-alpine
+    container_name: volunteer_matching_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - volunteer_network
+    command: redis-server --appendonly yes
+
+  # 后端应用
+  backend:
+    build: .
+    container_name: volunteer_matching_backend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - PORT=3000
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=${DB_USER:-volunteer}
+      - DB_PASSWORD=${DB_PASSWORD:-password}
+      - DB_NAME=${DB_NAME:-volunteer_matching}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=
+      - REDIS_DB=0
+      - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-24h}
+      - JWT_REFRESH_EXPIRES_IN=${JWT_REFRESH_EXPIRES_IN:-7d}
+      - JWT_ISSUER=${JWT_ISSUER:-volunteer-matching-app}
+      - JWT_AUDIENCE=${JWT_AUDIENCE:-volunteer-matching-users}
+      - DEFAULT_BLOCKCHAIN=${DEFAULT_BLOCKCHAIN:-ethereum}
+      - ETH_NETWORK=${ETH_NETWORK:-sepolia}
+      - ETH_RPC_URL=${ETH_RPC_URL}
+      - ETH_PRIVATE_KEY=${ETH_PRIVATE_KEY}
+      - ETH_CONTRACT_ADDRESS=${ETH_CONTRACT_ADDRESS}
+      - POLYGON_NETWORK=${POLYGON_NETWORK:-mumbai}
+      - POLYGON_RPC_URL=${POLYGON_RPC_URL}
+      - POLYGON_PRIVATE_KEY=${POLYGON_PRIVATE_KEY}
+      - POLYGON_CONTRACT_ADDRESS=${POLYGON_CONTRACT_ADDRESS}
+      - BSC_NETWORK=${BSC_NETWORK:-testnet}
+      - BSC_RPC_URL=${BSC_RPC_URL}
+      - BSC_PRIVATE_KEY=${BSC_PRIVATE_KEY}
+      - BSC_CONTRACT_ADDRESS=${BSC_CONTRACT_ADDRESS}
+      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:3000}
+      - RATE_LIMIT_WINDOW_MS=${RATE_LIMIT_WINDOW_MS:-900000}
+      - RATE_LIMIT_MAX_REQUESTS=${RATE_LIMIT_MAX_REQUESTS:-100}
+    volumes:
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+    depends_on:
+      - mysql
+      - redis
+    networks:
+      - volunteer_network
+    command: npm run start
+
+  # Nginx反向代理（可选）
+  nginx:
+    image: nginx:alpine
+    container_name: volunteer_matching_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+    depends_on:
+      - backend
+    networks:
+      - volunteer_network
+
+  # 数据库管理工具（可选）
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: volunteer_matching_phpmyadmin
+    restart: unless-stopped
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      PMA_USER: ${DB_USER:-volunteer}
+      PMA_PASSWORD: ${DB_PASSWORD:-password}
+    ports:
+      - "8080:80"
+    depends_on:
+      - mysql
+    networks:
+      - volunteer_network
+
+  # Redis管理工具（可选）
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: volunteer_matching_redis_commander
+    restart: unless-stopped
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    ports:
+      - "8081:8081"
+    depends_on:
+      - redis
+    networks:
+      - volunteer_network
+
+volumes:
+  mysql_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  volunteer_network:
+    driver: bridge 
